@@ -1,75 +1,88 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { toast } from 'sonner'
 
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
-}
+const REACTIONS = ['👍', '👏', '🔥']
 
-export default function ChatPage() {
+export default function CandidatePage() {
   const router = useRouter()
   const params = useParams()
-  const electionId = params.electionId as string
   const candidateId = params.candidateId as string
 
   const [candidate, setCandidate] = useState<any>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [fetching, setFetching] = useState(true)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState<any>(null)
+  const [election, setElection] = useState<any>(null)
+  const [reactions, setReactions] = useState<Record<string, number>>({ '👍': 0, '👏': 0, '🔥': 0 })
+  const [userReactions, setUserReactions] = useState<Record<string, boolean>>({})
+  const [loading, setLoading] = useState(true)
+  const [reacting, setReacting] = useState<string | null>(null)
 
   useEffect(() => {
-    if (candidateId) fetchCandidate()
+    if (candidateId) fetchData()
+    const stored = localStorage.getItem(`reactions_${candidateId}`)
+    if (stored) setUserReactions(JSON.parse(stored))
   }, [candidateId])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  async function fetchData() {
+    const { data: cand } = await supabase.from('candidates').select('*').eq('id', candidateId).single()
+    setCandidate(cand)
 
-  async function fetchCandidate() {
-    const { data } = await supabase.from('candidates').select('*').eq('id', candidateId).single()
-    setCandidate(data)
-    setFetching(false)
-    if (data) {
-      setMessages([{
-        role: 'assistant',
-        content: `Hi! I'm ${data.name}. Ask me anything about my plans and campaign promises. I'll answer based on my manifesto.`
-      }])
+    if (cand?.reactions) setReactions(cand.reactions)
+
+    if (cand?.position_id) {
+      const { data: pos } = await supabase.from('positions').select('*').eq('id', cand.position_id).single()
+      setPosition(pos)
     }
-  }
 
-  async function sendMessage() {
-    if (!input.trim() || loading) return
-
-    const userMessage: Message = { role: 'user', content: input.trim() }
-    const newMessages = [...messages, userMessage]
-    setMessages(newMessages)
-    setInput('')
-    setLoading(true)
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          candidateName: candidate.name,
-          manifesto: candidate.manifesto,
-          messages: newMessages,
-        }),
-      })
-      const data = await response.json()
-      setMessages([...newMessages, { role: 'assistant', content: data.reply }])
-    } catch (e) {
-      setMessages([...newMessages, { role: 'assistant', content: 'Sorry, I could not respond right now. Please try again.' }])
+    if (cand?.election_id) {
+      const { data: el } = await supabase.from('elections').select('*').eq('id', cand.election_id).single()
+      setElection(el)
     }
+
     setLoading(false)
   }
 
-  if (fetching) {
+  async function handleReaction(emoji: string) {
+    if (reacting) return
+    setReacting(emoji)
+
+    const alreadyReacted = userReactions[emoji]
+    const newCount = alreadyReacted
+      ? Math.max(0, (reactions[emoji] || 0) - 1)
+      : (reactions[emoji] || 0) + 1
+
+    const newReactions = { ...reactions, [emoji]: newCount }
+    const newUserReactions = { ...userReactions, [emoji]: !alreadyReacted }
+
+    setReactions(newReactions)
+    setUserReactions(newUserReactions)
+    localStorage.setItem(`reactions_${candidateId}`, JSON.stringify(newUserReactions))
+
+    await supabase
+      .from('candidates')
+      .update({ reactions: newReactions })
+      .eq('id', candidateId)
+
+    setReacting(null)
+  }
+
+  function shareCandidate() {
+    if (navigator.share) {
+      navigator.share({
+        title: `Vote for ${candidate?.name}`,
+        text: `Check out ${candidate?.name}'s manifesto for the ${position?.title} position!`,
+        url: window.location.href,
+      })
+    } else {
+      navigator.clipboard.writeText(window.location.href)
+      toast.success('Link copied to clipboard!')
+    }
+  }
+
+  if (loading) {
     return (
       <div style={{ background: '#0f0c29', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px' }}>Loading...</p>
@@ -77,117 +90,139 @@ export default function ChatPage() {
     )
   }
 
-  return (
-    <div style={{ background: '#0f0c29', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+  const totalReactions = Object.values(reactions).reduce((a, b) => a + b, 0)
 
-      {/* Header */}
-      <div style={{ padding: '16px 24px', borderBottom: '0.5px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(15,12,41,0.95)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 }}>
+  return (
+    <div style={{ background: '#0f0c29', minHeight: '100vh', padding: '32px 24px 48px' }}>
+      <div style={{ maxWidth: '560px', margin: '0 auto' }}>
+
+        {/* Back */}
         <button
           onClick={() => router.back()}
-          style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '13px', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
-          ←
+          style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '13px', cursor: 'pointer', marginBottom: '24px', padding: 0 }}>
+          ← Back
         </button>
 
-        <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {candidate?.photo_url ? (
-            <img src={candidate.photo_url} alt={candidate.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            <span style={{ color: '#818cf8', fontSize: '16px', fontWeight: 600 }}>{candidate?.name?.charAt(0)}</span>
-          )}
-        </div>
+        {/* Profile card */}
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '28px', marginBottom: '16px' }}>
 
-        <div>
-          <h1 style={{ color: 'white', fontSize: '15px', fontWeight: 500, margin: 0 }}>{candidate?.name}</h1>
-          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', margin: 0 }}>AI powered by manifesto</p>
-        </div>
-
-        <div style={{ marginLeft: 'auto', fontSize: '11px', padding: '3px 10px', borderRadius: '999px', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
-          🤖 AI
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '100px' }}>
-        {messages.map((msg, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: '10px', alignItems: 'flex-end' }}>
-
-            {msg.role === 'assistant' && (
-              <div style={{ width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {candidate?.photo_url ? (
-                  <img src={candidate.photo_url} alt={candidate.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <span style={{ color: '#818cf8', fontSize: '13px', fontWeight: 600 }}>{candidate?.name?.charAt(0)}</span>
-                )}
+          {/* Avatar + name */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
+            <div style={{ width: '72px', height: '72px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(99,102,241,0.3)' }}>
+              {candidate?.photo_url ? (
+                <img src={candidate.photo_url} alt={candidate.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <span style={{ color: '#818cf8', fontSize: '28px', fontWeight: 600 }}>{candidate?.name?.charAt(0)}</span>
+              )}
+            </div>
+            <div>
+              <h1 style={{ color: 'white', fontSize: '22px', fontWeight: 500, margin: 0 }}>{candidate?.name}</h1>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '999px', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
+                  {position?.title}
+                </span>
+                <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '999px', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+                  {election?.school_name}
+                </span>
               </div>
-            )}
-
-            <div style={{
-              maxWidth: '75%',
-              padding: '12px 16px',
-              borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-              background: msg.role === 'user' ? '#4f46e5' : 'rgba(255,255,255,0.06)',
-              border: msg.role === 'user' ? 'none' : '0.5px solid rgba(255,255,255,0.08)',
-              color: 'white',
-              fontSize: '14px',
-              lineHeight: 1.6,
-            }}>
-              {msg.content}
-            </div>
-
-          </div>
-        ))}
-
-        {loading && (
-          <div style={{ display: 'flex', justifyContent: 'flex-start', gap: '10px', alignItems: 'flex-end' }}>
-            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ color: '#818cf8', fontSize: '13px', fontWeight: 600 }}>{candidate?.name?.charAt(0)}</span>
-            </div>
-            <div style={{ padding: '12px 16px', borderRadius: '18px 18px 18px 4px', background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.4)', fontSize: '14px' }}>
-              Typing...
             </div>
           </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
 
-      {/* Suggested questions */}
-      {messages.length === 1 && (
-        <div style={{ padding: '0 24px 12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {[
-            'What are your top priorities?',
-            'How will you improve student welfare?',
-            'What makes you different?',
-          ].map((q) => (
-            <button
-              key={q}
-              onClick={() => { setInput(q); }}
-              style={{ fontSize: '12px', padding: '6px 12px', borderRadius: '999px', background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', border: '0.5px solid rgba(99,102,241,0.3)', cursor: 'pointer' }}>
-              {q}
-            </button>
-          ))}
+          {/* Reactions */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '14px', padding: '16px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Community Reactions
+              </span>
+              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>
+                {totalReactions} total
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              {REACTIONS.map(emoji => (
+                <button
+                  key={emoji}
+                  onClick={() => handleReaction(emoji)}
+                  style={{
+                    flex: 1,
+                    height: '52px',
+                    borderRadius: '12px',
+                    background: userReactions[emoji] ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)',
+                    border: userReactions[emoji] ? '1px solid rgba(99,102,241,0.4)' : '0.5px solid rgba(255,255,255,0.08)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '2px',
+                    transition: 'all 0.15s ease',
+                  }}>
+                  <span style={{ fontSize: '20px' }}>{emoji}</span>
+                  <span style={{ color: userReactions[emoji] ? '#a5b4fc' : 'rgba(255,255,255,0.4)', fontSize: '11px', fontWeight: 500 }}>
+                    {reactions[emoji] || 0}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Manifesto */}
+          <div>
+            <h2 style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+              Manifesto
+            </h2>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>
+              {candidate?.manifesto || 'No manifesto provided.'}
+            </p>
+          </div>
+
+          {/* Campaign updates */}
+          {candidate?.campaign_updates && candidate.campaign_updates.length > 0 && (
+            <div style={{ marginTop: '20px' }}>
+              <h2 style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+                Campaign Updates
+              </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {[...candidate.campaign_updates].reverse().map((update: any, i: number) => (
+                  <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '12px 14px', borderLeft: '2px solid #4f46e5' }}>
+                    <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', lineHeight: 1.5, margin: 0 }}>{update.text}</p>
+                    {update.timestamp && (
+                      <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '11px', marginTop: '6px', marginBottom: 0 }}>
+                        {new Date(update.timestamp).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
         </div>
-      )}
 
-      {/* Input */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: 'rgba(15,12,41,0.95)', borderTop: '0.5px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(10px)' }}>
-        <div style={{ display: 'flex', gap: '10px', maxWidth: '800px', margin: '0 auto' }}>
-          <input
-            type="text"
-            placeholder={`Ask ${candidate?.name} a question...`}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            style={{ flex: 1, height: '48px', borderRadius: '24px', padding: '0 20px', fontSize: '14px', outline: 'none', background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.15)', color: 'white' }}
-          />
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: '10px' }}>
           <button
-            onClick={sendMessage}
-            disabled={loading || !input.trim()}
-            style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#4f46e5', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', opacity: loading || !input.trim() ? 0.5 : 1, flexShrink: 0 }}>
-            ↑
+            onClick={() => router.push(`/chat/${candidate?.election_id}/${candidateId}`)}
+            style={{ flex: 1, height: '48px', borderRadius: '12px', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontSize: '14px', border: '0.5px solid rgba(99,102,241,0.3)', cursor: 'pointer', fontWeight: 500 }}>
+            🤖 Ask AI
+          </button>
+          <button
+            onClick={shareCandidate}
+            style={{ flex: 1, height: '48px', borderRadius: '12px', background: '#4f46e5', color: 'white', fontSize: '14px', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
+            📤 Share
           </button>
         </div>
-      </div>
 
+        {/* Back to vote */}
+        {election && (
+          <button
+            onClick={() => router.push(`/vote/${election.id}`)}
+            style={{ width: '100%', height: '44px', borderRadius: '12px', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '13px', border: '0.5px solid rgba(255,255,255,0.08)', cursor: 'pointer', marginTop: '10px' }}>
+            ← Back to Ballot
+          </button>
+        )}
+
+      </div>
     </div>
   )
 }

@@ -41,13 +41,10 @@ export default function BallotPage() {
   async function fetchData() {
     const { data: el } = await supabase.from('elections').select('*').eq('id', electionId).single()
     setElection(el)
-
     const { data: pos } = await supabase.from('positions').select('*').eq('election_id', electionId)
     setPositions(pos || [])
-
     const { data: cands } = await supabase.from('candidates').select('*').eq('election_id', electionId)
     setCandidates(cands || [])
-
     setLoading(false)
   }
 
@@ -135,7 +132,6 @@ export default function BallotPage() {
     <div style={{ background: '#0f0c29', minHeight: '100vh', padding: '32px 24px 100px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
 
-        {/* Header */}
         <div style={{ marginBottom: '28px' }}>
           <h1 style={{ color: 'white', fontSize: '20px', fontWeight: 500, margin: 0 }}>
             {election?.title}
@@ -151,7 +147,6 @@ export default function BallotPage() {
           </p>
         </div>
 
-        {/* Positions */}
         {positions.map(position => {
           const posCandidates = candidates.filter(c => c.position_id === position.id)
           const selected = selections[position.id]
@@ -183,7 +178,6 @@ export default function BallotPage() {
                         gap: '14px',
                       }}>
 
-                      {/* Avatar */}
                       <div style={{ width: '48px', height: '48px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {candidate.photo_url ? (
                           <img src={candidate.photo_url} alt={candidate.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -194,7 +188,6 @@ export default function BallotPage() {
                         )}
                       </div>
 
-                      {/* Info */}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                           <h3 style={{ color: 'white', fontSize: '15px', fontWeight: 500, margin: 0 }}>{candidate.name}</h3>
@@ -207,16 +200,21 @@ export default function BallotPage() {
                             {candidate.manifesto}
                           </p>
                         )}
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); router.push(`/candidate/${candidate.id}`) }}
+                            style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '6px', background: 'transparent', color: 'rgba(255,255,255,0.5)', border: '0.5px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
+                            👤 Profile
+                          </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); router.push(`/compare/${electionId}/${position.id}`) }}
                             style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '6px', background: 'transparent', color: 'rgba(255,255,255,0.5)', border: '0.5px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
-                            Compare
+                            ⚖️ Compare
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); router.push(`/chat/${electionId}/${candidate.id}`) }}
                             style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '6px', background: 'transparent', color: 'rgba(255,255,255,0.5)', border: '0.5px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
-                            Ask AI 🤖
+                            🤖 Ask AI
                           </button>
                         </div>
                       </div>
@@ -228,7 +226,6 @@ export default function BallotPage() {
           )
         })}
 
-        {/* Submit */}
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 24px', background: 'rgba(15,12,41,0.95)', borderTop: '0.5px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(10px)' }}>
           <div style={{ maxWidth: '600px', margin: '0 auto' }}>
             <button
