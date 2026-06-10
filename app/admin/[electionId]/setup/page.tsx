@@ -213,7 +213,7 @@ export default function SetupPage() {
                 )}
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', width: '100%', height: '44px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <label style={{ width: '100%', height: '44px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                   📸 {photoFile ? photoFile.name.substring(0, 20) + '...' : 'Upload Photo (max 2MB)'}
                   <input type="file" accept="image/*" onChange={handlePhotoSelect} style={{ display: 'none' }} />
                 </label>
