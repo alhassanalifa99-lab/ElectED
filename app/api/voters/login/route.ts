@@ -1,60 +1,38 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { hashStudentId } from '@/lib/hash'
+import { hashValue } from '@/lib/hash'
 
-function createAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) {
-    throw new Error('Missing Supabase admin credentials')
-  }
-  return createClient(url, key)
-}
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 export async function POST(req: Request) {
   try {
-    const { studentId, email, electionId } = await req.json()
+    const { indexNumber, pin, electionId } = await req.json()
 
-    if (!studentId || !email || !electionId) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    if (!indexNumber || !pin || !electionId) {
+      return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
     }
 
-    const trimmedId = studentId.trim()
-    const trimmedEmail = email.trim()
-    const normalizedEmail = trimmedEmail.toLowerCase()
-    const studentIdHash = hashStudentId(studentId)
+    const indexHash = hashValue(indexNumber)
+    const pinHash = hashValue(pin)
 
-    const supabase = createAdminClient()
-
-    // Try hashed lookup first (new pipeline)
-    const { data: hashedVoter } = await supabase
+    const { data: voter, error } = await supabaseAdmin
       .from('voters')
       .select('*')
       .eq('election_id', electionId)
-      .eq('student_id_hash', studentIdHash)
-      .eq('email', normalizedEmail)
-      .maybeSingle()
+      .eq('index_number_hash', indexHash)
+      .eq('pin_hash', pinHash)
+      .single()
 
-    if (hashedVoter) {
-      return NextResponse.json({ voter: hashedVoter })
+    if (error || !voter) {
+      return NextResponse.json({ error: 'Invalid Index Number or PIN' }, { status: 404 })
     }
 
-    // Fallback for legacy demo rows (plaintext student_id, no hash yet)
-    const { data: legacyVoter } = await supabase
-      .from('voters')
-      .select('*')
-      .eq('election_id', electionId)
-      .eq('student_id', trimmedId)
-      .eq('email', trimmedEmail)
-      .maybeSingle()
-
-    if (legacyVoter) {
-      return NextResponse.json({ voter: legacyVoter })
-    }
-
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json({ voter })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Login failed'
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error('Login route error:', err)
+    return NextResponse.json({ error: 'Login failed' }, { status: 500 })
   }
 }
