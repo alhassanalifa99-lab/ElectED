@@ -59,14 +59,13 @@ export default function AdminPage() {
     setSchools(data || [])
   }
 
-  function slugify(text: string) {
-    return text
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-  }
+ function slugify(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+}
 
   async function handleAddSchool() {
     if (!newSchoolName.trim() || !newSchoolSlug.trim() || !newSchoolPassword.trim()) {
