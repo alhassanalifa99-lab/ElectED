@@ -3,85 +3,235 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getElectionStatus, formatDate } from '@/lib/helpers'
 import { toast } from 'sonner'
 
 export default function AdminPage() {
   const router = useRouter()
-  const [password, setPassword] = useState('')
-  const [authed, setAuthed] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const [elections, setElections] = useState<any[]>([])
+  const [authed, setAuthed] = useState(false)
+  const [schoolCode, setSchoolCode] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const [schoolName, setSchoolName] = useState('')
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [elections, setElections] = useState<any[]>([])
+
+  // Schools management (super admin only)
+  const [schools, setSchools] = useState<any[]>([])
+  const [showAddSchool, setShowAddSchool] = useState(false)
+  const [newSchoolName, setNewSchoolName] = useState('')
+  const [newSchoolSlug, setNewSchoolSlug] = useState('')
+  const [newSchoolPassword, setNewSchoolPassword] = useState('')
+  const [addingSchool, setAddingSchool] = useState(false)
 
   useEffect(() => {
     setMounted(true)
     try {
-      const saved = sessionStorage.getItem('admin_authed')
-      if (saved === 'true') {
+      const isAuthed = sessionStorage.getItem('admin_authed') === 'true'
+      if (isAuthed) {
         setAuthed(true)
+        setSchoolName(sessionStorage.getItem('school_name') || '')
+        const isSuper = sessionStorage.getItem('is_super_admin') === 'true'
+        setIsSuperAdmin(isSuper)
         fetchElections()
+        if (isSuper) fetchSchools()
       }
     } catch (e) {}
   }, [])
 
- async function fetchElections() {
-  setLoading(true)
-  const { data, error } = await supabase
-    .from('elections')
-    .select('*')
-    .order('created_at', { ascending: false })
-  setElections(data || [])
-  setLoading(false)
-}
+  async function fetchElections() {
+    const isSuper = sessionStorage.getItem('is_super_admin') === 'true'
+    const schoolId = sessionStorage.getItem('school_id')
 
-  function handleLogin() {
-    if (password === 'admin123') {
-      try { sessionStorage.setItem('admin_authed', 'true') } catch (e) {}
-      setAuthed(true)
-      fetchElections()
-      toast.success('Welcome back, Admin!')
-    } else {
-      toast.error('Wrong password!')
+    let query = supabase.from('elections').select('*').order('created_at', { ascending: false })
+
+    if (!isSuper) {
+      query = query.eq('school_id', schoolId)
     }
+
+    const { data } = await query
+    setElections(data || [])
+  }
+
+  async function fetchSchools() {
+    const { data } = await supabase.from('schools').select('*').order('created_at', { ascending: false })
+    setSchools(data || [])
+  }
+
+  function slugify(text: string) {
+    return text
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+  }
+
+  async function handleAddSchool() {
+    if (!newSchoolName.trim() || !newSchoolSlug.trim() || !newSchoolPassword.trim()) {
+      toast.error('Please fill in all fields')
+      return
+    }
+
+    const slug = slugify(newSchoolSlug)
+
+    if (schools.some(s => s.slug === slug)) {
+      toast.error(`School code "${slug}" is already taken`)
+      return
+    }
+
+    setAddingSchool(true)
+
+    const { error } = await supabase
+      .from('schools')
+      .insert([{
+        name: newSchoolName.trim(),
+        slug,
+        admin_password: newSchoolPassword.trim(),
+      }])
+
+    if (error) {
+      toast.error(error.message.includes('duplicate') ? `School code "${slug}" is already taken` : 'Failed to add school')
+      setAddingSchool(false)
+      return
+    }
+
+    toast.success(`School "${newSchoolName.trim()}" added! Code: ${slug}`)
+    setNewSchoolName('')
+    setNewSchoolSlug('')
+    setNewSchoolPassword('')
+    setShowAddSchool(false)
+    await fetchSchools()
+    setAddingSchool(false)
+  }
+
+  async function handleDeleteSchool(school: any) {
+    const { count } = await supabase
+      .from('elections')
+      .select('*', { count: 'exact', head: true })
+      .eq('school_id', school.id)
+
+    if (count && count > 0) {
+      toast.error(`Cannot delete — this school has ${count} election${count === 1 ? '' : 's'}`)
+      return
+    }
+
+    if (!window.confirm(`Delete "${school.name}"? This cannot be undone.`)) return
+
+    const { error } = await supabase.from('schools').delete().eq('id', school.id)
+    if (error) {
+      toast.error('Failed to delete school')
+      return
+    }
+
+    toast.success(`"${school.name}" deleted`)
+    await fetchSchools()
+  }
+
+  function copyLoginInfo(school: any) {
+    const text = `School Code: ${school.slug}\nPassword: ${school.admin_password}\nLogin at: https://elect-ed-pied.vercel.app/admin`
+    navigator.clipboard.writeText(text).then(() => {
+      toast.success('Login details copied!')
+    }).catch(() => {
+      toast.info(text)
+    })
+  }
+
+  async function handleLogin() {
+    if (!schoolCode.trim() || !password.trim()) {
+      toast.error('Enter your school code and password')
+      return
+    }
+    setLoading(true)
+
+    const { data: school, error } = await supabase
+      .from('schools')
+      .select('*')
+      .eq('slug', schoolCode.trim().toLowerCase())
+      .single()
+
+    if (error || !school) {
+      toast.error('Invalid school code or password')
+      setLoading(false)
+      return
+    }
+
+    if (school.admin_password !== password) {
+      toast.error('Invalid school code or password')
+      setLoading(false)
+      return
+    }
+
+    const isSuper = school.slug === 'super'
+
+    sessionStorage.setItem('admin_authed', 'true')
+    sessionStorage.setItem('school_id', school.id)
+    sessionStorage.setItem('school_name', school.name)
+    sessionStorage.setItem('school_slug', school.slug)
+    sessionStorage.setItem('is_super_admin', isSuper ? 'true' : 'false')
+
+    setAuthed(true)
+    setSchoolName(school.name)
+    setIsSuperAdmin(isSuper)
+    await fetchElections()
+    if (isSuper) await fetchSchools()
+    toast.success(`Welcome, ${school.name}!`)
+    setLoading(false)
   }
 
   function handleLogout() {
-    try { sessionStorage.removeItem('admin_authed') } catch (e) {}
+    sessionStorage.clear()
     setAuthed(false)
     setElections([])
+    setSchools([])
+    setIsSuperAdmin(false)
   }
 
   if (!mounted) return null
 
+  const input = { width: '100%', height: '48px', borderRadius: '12px', padding: '0 16px', fontSize: '14px', outline: 'none', background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.15)', color: 'white' }
+  const btn = { height: '48px', padding: '0 20px', borderRadius: '12px', background: '#4f46e5', color: 'white', fontSize: '14px', fontWeight: 500, border: 'none', cursor: 'pointer' }
+  const btnSm = { padding: '6px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', fontSize: '12px', border: '0.5px solid rgba(255,255,255,0.12)', cursor: 'pointer' }
+  const card = { background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px' }
+
   if (!authed) {
     return (
       <div style={{ background: '#0f0c29', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-        <div style={{ width: '100%', maxWidth: '360px', background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '32px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-            <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔒</div>
-            <h1 style={{ color: 'white', fontSize: '22px', fontWeight: 500, margin: 0 }}>Admin Portal</h1>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', marginTop: '6px' }}>Enter your password to continue</p>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-              style={{ width: '100%', height: '48px', borderRadius: '12px', padding: '0 16px', fontSize: '14px', outline: 'none', background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.15)', color: 'white' }}
-            />
-            <button
-              onClick={handleLogin}
-              style={{ width: '100%', height: '48px', borderRadius: '12px', background: '#4f46e5', color: 'white', fontSize: '15px', fontWeight: 500, border: 'none', cursor: 'pointer' }}>
-              Login
-            </button>
-            <button
-              onClick={() => router.push('/')}
-              style={{ width: '100%', height: '40px', borderRadius: '12px', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '13px', border: '0.5px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
-              Back to Home
-            </button>
+        <div style={{ width: '100%', maxWidth: '360px' }}>
+          <button onClick={() => router.push('/')} style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '13px', cursor: 'pointer', marginBottom: '24px', padding: 0 }}>
+            ← Back
+          </button>
+
+          <div style={{ ...card, padding: '32px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔐</div>
+              <h1 style={{ color: 'white', fontSize: '22px', fontWeight: 500, margin: 0 }}>Admin Login</h1>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', marginTop: '6px' }}>
+                Enter your school code and password
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input
+                type="text"
+                placeholder="School code (e.g. accra-high)"
+                value={schoolCode}
+                onChange={(e) => setSchoolCode(e.target.value)}
+                style={input}
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                style={input}
+              />
+              <button onClick={handleLogin} disabled={loading} style={{ ...btn, width: '100%', opacity: loading ? 0.7 : 1 }}>
+                {loading ? 'Checking...' : 'Login →'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -92,87 +242,101 @@ export default function AdminPage() {
     <div style={{ background: '#0f0c29', minHeight: '100vh', padding: '32px 24px' }}>
       <div style={{ maxWidth: '680px', margin: '0 auto' }}>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px' }}>
           <div>
-            <h1 style={{ color: 'white', fontSize: '22px', fontWeight: 500, margin: 0 }}>Dashboard</h1>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', marginTop: '4px' }}>Manage your elections</p>
+            <h1 style={{ color: 'white', fontSize: '20px', fontWeight: 500, margin: 0 }}>
+              {isSuperAdmin ? '🌐 All Schools' : schoolName}
+            </h1>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', marginTop: '4px' }}>
+              {isSuperAdmin ? 'Super admin — viewing every school' : 'Admin Dashboard'}
+            </p>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button
-              onClick={() => router.push('/admin/create')}
-              style={{ height: '40px', padding: '0 16px', borderRadius: '10px', background: '#4f46e5', color: 'white', fontSize: '13px', fontWeight: 500, border: 'none', cursor: 'pointer' }}>
-              + New Election
-            </button>
-            <button
-              onClick={handleLogout}
-              style={{ height: '40px', padding: '0 16px', borderRadius: '10px', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '13px', border: '0.5px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
-              Logout
-            </button>
-          </div>
+          <button onClick={handleLogout} style={{ ...btn, background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.12)' }}>
+            Logout
+          </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '28px' }}>
-          {[
-            { label: 'Total', value: elections.length },
-            { label: 'Active', value: elections.filter(e => getElectionStatus(e.is_active, e.start_date, e.end_date) === 'active').length },
-            { label: 'Ended', value: elections.filter(e => getElectionStatus(e.is_active, e.start_date, e.end_date) === 'ended').length },
-          ].map((s, i) => (
-            <div key={i} style={{ background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '16px', textAlign: 'center' }}>
-              <div style={{ color: 'white', fontSize: '24px', fontWeight: 500 }}>{s.value}</div>
-              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '11px', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</div>
+        {/* Schools management - super admin only */}
+        {isSuperAdmin && (
+          <div style={{ ...card, marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <h2 style={{ color: 'white', fontSize: '15px', fontWeight: 500, margin: 0 }}>Schools</h2>
+              <button onClick={() => setShowAddSchool(!showAddSchool)} style={btnSm}>
+                {showAddSchool ? 'Cancel' : '+ Add School'}
+              </button>
+            </div>
+
+            {showAddSchool && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px', padding: '14px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '0.5px solid rgba(255,255,255,0.06)' }}>
+                <input
+                  placeholder="School name (e.g. Tema International School)"
+                  value={newSchoolName}
+                  onChange={(e) => setNewSchoolName(e.target.value)}
+                  style={input}
+                />
+                <input
+                  placeholder="School code (e.g. tema-intl)"
+                  value={newSchoolSlug}
+                  onChange={(e) => setNewSchoolSlug(slugify(e.target.value))}
+                  style={input}
+                />
+                <input
+                  placeholder="Admin password"
+                  value={newSchoolPassword}
+                  onChange={(e) => setNewSchoolPassword(e.target.value)}
+                  style={input}
+                />
+                <button onClick={handleAddSchool} disabled={addingSchool} style={{ ...btn, opacity: addingSchool ? 0.7 : 1 }}>
+                  {addingSchool ? 'Adding...' : 'Add School'}
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {schools.length === 0 && (
+                <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '13px' }}>No schools yet</p>
+              )}
+              {schools.map(school => (
+                <div key={school.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '0.5px solid rgba(255,255,255,0.06)', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <span style={{ color: 'white', fontSize: '14px' }}>{school.name}</span>
+                    <span style={{ color: '#a5b4fc', fontSize: '12px', marginLeft: '10px', fontFamily: 'monospace' }}>{school.slug}</span>
+                    <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px', marginLeft: '10px' }}>pw: {school.admin_password}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button onClick={() => copyLoginInfo(school)} style={btnSm}>Copy login info</button>
+                    <button onClick={() => handleDeleteSchool(school)} style={{ ...btnSm, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button onClick={() => router.push('/admin/create')} style={{ ...btn, width: '100%', marginBottom: '20px' }}>
+          + Create New Election
+        </button>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {elections.length === 0 && (
+            <div style={{ ...card, textAlign: 'center' }}>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: 0 }}>No elections yet. Create one above!</p>
+            </div>
+          )}
+          {elections.map(el => (
+            <div
+              key={el.id}
+              onClick={() => router.push(`/admin/${el.id}/setup`)}
+              style={{ ...card, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <h3 style={{ color: 'white', fontSize: '15px', fontWeight: 500, margin: 0 }}>{el.title}</h3>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', marginTop: '4px' }}>{el.school_name}</p>
+              </div>
+              <div style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: el.is_active ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)', color: el.is_active ? '#10b981' : 'rgba(255,255,255,0.4)' }}>
+                {el.is_active ? 'Active' : 'Inactive'}
+              </div>
             </div>
           ))}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {loading && (
-            <div style={{ textAlign: 'center', padding: '48px', color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>
-              Loading elections...
-            </div>
-          )}
-
-          {!loading && elections.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', border: '0.5px dashed rgba(255,255,255,0.1)', borderRadius: '16px', color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>
-              No elections yet. Click "+ New Election" to create one!
-            </div>
-          )}
-
-          {elections.map((e) => {
-            const status = getElectionStatus(e.is_active, e.start_date, e.end_date)
-            const sc = status === 'active'
-              ? { bg: 'rgba(16,185,129,0.1)', color: '#10b981', label: '● Active' }
-              : status === 'ended'
-              ? { bg: 'rgba(239,68,68,0.1)', color: '#ef4444', label: '● Ended' }
-              : { bg: 'rgba(234,179,8,0.1)', color: '#eab308', label: '● Upcoming' }
-
-            return (
-              <div key={e.id} style={{ background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px', marginBottom: '4px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', flexWrap: 'wrap' }}>
-                  <h2 style={{ color: 'white', fontSize: '14px', fontWeight: 500, margin: 0 }}>{e.title}</h2>
-                  <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '999px', background: sc.bg, color: sc.color }}>
-                    {sc.label}
-                  </span>
-                </div>
-                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '12px', marginBottom: '14px' }}>
-                  {e.school_name} · {formatDate(e.start_date)} → {formatDate(e.end_date)}
-                </p>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {[
-                    { label: 'Setup', path: `/admin/${e.id}/setup` },
-                    { label: 'Results', path: `/admin/${e.id}/results` },
-                    { label: 'Public', path: `/results/${e.id}` },
-                  ].map((btn) => (
-                    <button
-                      key={btn.label}
-                      onClick={() => router.push(btn.path)}
-                      style={{ fontSize: '12px', padding: '6px 12px', borderRadius: '8px', background: 'transparent', color: 'rgba(255,255,255,0.6)', border: '0.5px solid rgba(255,255,255,0.12)', cursor: 'pointer' }}>
-                      {btn.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
         </div>
 
       </div>

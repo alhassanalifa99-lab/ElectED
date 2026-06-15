@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { exportToCSV, formatDate } from '@/lib/helpers'
+import { canAccessSchool } from '@/lib/school-guard'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 export default function AdminResultsPage() {
@@ -32,6 +33,10 @@ export default function AdminResultsPage() {
 
   async function fetchData() {
     const { data: el } = await supabase.from('elections').select('*').eq('id', electionId).single()
+    if (!el || !canAccessSchool(el.school_id)) {
+      router.push('/admin')
+      return
+    }
     setElection(el)
     const { data: pos } = await supabase.from('positions').select('*').eq('election_id', electionId)
     setPositions(pos || [])

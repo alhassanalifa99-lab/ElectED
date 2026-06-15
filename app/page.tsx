@@ -55,12 +55,14 @@ export default function HomePage() {
 
         <div className="flex flex-col gap-3 w-full pt-2">
           <button
+            type="button"
             onClick={() => router.push('/vote')}
             className="w-full rounded-2xl text-white font-medium text-base transition-opacity hover:opacity-90"
             style={{ background: '#4f46e5', height: '52px' }}>
             🗳️ Cast Your Vote
           </button>
           <button
+            type="button"
             onClick={() => router.push('/admin')}
             className="w-full rounded-2xl font-medium text-base transition-all hover:bg-white/5"
             style={{ height: '52px', border: '0.5px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)', background: 'transparent' }}>

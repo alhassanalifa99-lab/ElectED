@@ -38,3 +38,14 @@ export function getElectionStatus(
   if (isActive) return 'active'
   return 'upcoming'
 }
+import crypto from 'crypto'
+
+export function hashStudentId(rawId: string): string {
+  const salt = process.env.VOTER_ID_SALT
+  if (!salt) throw new Error('VOTER_ID_SALT is not set')
+
+  return crypto
+    .createHmac('sha256', salt)
+    .update(rawId.trim().toUpperCase())
+    .digest('hex')
+}

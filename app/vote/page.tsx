@@ -32,16 +32,20 @@ export default function VotePage() {
 
     const election = elections[0]
 
-    const { data: voter, error } = await supabase
-      .from('voters')
-      .select('*')
-      .eq('election_id', election.id)
-      .eq('student_id', studentId.trim())
-      .eq('email', email.trim())
-      .single()
+    const res = await fetch('/api/voters/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId,
+        email,
+        electionId: election.id,
+      }),
+    })
 
-    if (error || !voter) {
-      toast.error('Student ID or email not found. Contact your admin.')
+    const { voter } = await res.json()
+
+    if (!res.ok || !voter) {
+      toast.error('Student ID or email not found.')
       setLoading(false)
       return
     }

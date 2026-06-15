@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { canAccessSchool } from '@/lib/school-guard'
 
 export default function SetupPage() {
   const router = useRouter()
@@ -31,6 +32,10 @@ export default function SetupPage() {
 
   async function fetchAll() {
     const { data: el } = await supabase.from('elections').select('*').eq('id', electionId).single()
+    if (!el || !canAccessSchool(el.school_id)) {
+      router.push('/admin')
+      return
+    }
     setElection(el)
     const { data: pos } = await supabase.from('positions').select('*').eq('election_id', electionId)
     setPositions(pos || [])
@@ -272,11 +277,26 @@ export default function SetupPage() {
         })}
 
         {/* Actions */}
-        <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-          <button onClick={() => router.push(`/admin/${electionId}/results`)} style={{ ...btn, flex: 1, background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.12)' }}>
+        <div style={{ display: 'flex', gap: '10px', marginTop: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => router.push(`/admin/${electionId}/voters`)}
+            style={{ ...btn, flex: 1, minWidth: '140px' }}
+          >
+            👥 Manage Voters
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push(`/admin/${electionId}/results`)}
+            style={{ ...btn, flex: 1, minWidth: '140px', background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.12)' }}
+          >
             📊 View Results
           </button>
-          <button onClick={() => router.push(`/vote`)} style={{ ...btn, flex: 1 }}>
+          <button
+            type="button"
+            onClick={() => router.push(`/vote`)}
+            style={{ ...btn, flex: 1, minWidth: '140px' }}
+          >
             🗳️ Go to Voter Page
           </button>
         </div>

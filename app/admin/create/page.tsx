@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 export default function CreateElectionPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -16,15 +17,39 @@ export default function CreateElectionPage() {
     end_date: '',
   })
 
+  useEffect(() => {
+    setMounted(true)
+    try {
+      const authed = sessionStorage.getItem('admin_authed')
+      if (authed !== 'true') {
+        router.push('/admin')
+        return
+      }
+
+      const name = sessionStorage.getItem('school_name')
+      if (name && name !== 'Platform Admin') {
+        setForm((prev) => ({ ...prev, school_name: name }))
+      }
+    } catch (e) {}
+  }, [router])
+
   async function handleCreate() {
     if (!form.title || !form.school_name || !form.start_date || !form.end_date) {
       toast.error('Please fill in all required fields')
       return
     }
     setLoading(true)
+
+    let schoolId: string | null = null
+    try {
+      if (sessionStorage.getItem('is_super_admin') !== 'true') {
+        schoolId = sessionStorage.getItem('school_id')
+      }
+    } catch (e) {}
+
     const { data, error } = await supabase
       .from('elections')
-      .insert([{ ...form, is_active: false }])
+      .insert([{ ...form, is_active: false, school_id: schoolId }])
       .select()
       .single()
 
@@ -36,6 +61,8 @@ export default function CreateElectionPage() {
     toast.success('Election created!')
     router.push(`/admin/${data.id}/setup`)
   }
+
+  if (!mounted) return null
 
   const inputStyle = {
     background: 'rgba(255,255,255,0.06)',
@@ -52,9 +79,12 @@ export default function CreateElectionPage() {
         }} />
 
       <div className="relative z-10 max-w-lg mx-auto">
-        <button onClick={() => router.push('/admin')}
+        <button
+          type="button"
+          onClick={() => router.push('/admin')}
           className="text-sm mb-6 flex items-center gap-2 transition-opacity hover:opacity-70"
-          style={{ color: 'rgba(255,255,255,0.4)' }}>
+          style={{ color: 'rgba(255,255,255,0.4)' }}
+        >
           ← Back to Dashboard
         </button>
 
@@ -118,10 +148,12 @@ export default function CreateElectionPage() {
           </div>
 
           <button
+            type="button"
             onClick={handleCreate}
             disabled={loading}
             className="w-full h-12 rounded-xl text-white font-medium mt-4 transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ background: '#4f46e5' }}>
+            style={{ background: '#4f46e5' }}
+          >
             {loading ? 'Creating...' : 'Create Election →'}
           </button>
         </div>
