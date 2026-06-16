@@ -7,31 +7,48 @@ import { toast } from 'sonner'
 
 export default function VotePage() {
   const router = useRouter()
+  const [schoolCode, setSchoolCode] = useState('')
   const [indexNumber, setIndexNumber] = useState('')
   const [pin, setPin] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleLogin() {
-    if (!indexNumber.trim() || !pin.trim()) {
-      toast.error('Please enter your Index Number and PIN')
+    if (!schoolCode.trim() || !indexNumber.trim() || !pin.trim()) {
+      toast.error('Please fill in all fields')
       return
     }
     setLoading(true)
 
+    // Find the school by slug
+    const { data: school, error: schoolError } = await supabase
+      .from('schools')
+      .select('*')
+      .eq('slug', schoolCode.trim().toLowerCase())
+      .single()
+
+    if (schoolError || !school) {
+      toast.error('School code not found')
+      setLoading(false)
+      return
+    }
+
+    // Find the active election for this school
     const { data: elections } = await supabase
       .from('elections')
       .select('*')
+      .eq('school_id', school.id)
       .eq('is_active', true)
       .limit(1)
 
     if (!elections || elections.length === 0) {
-      toast.error('No active election found')
+      toast.error('No active election found for this school')
       setLoading(false)
       return
     }
 
     const election = elections[0]
 
+    // Verify index number + PIN via secure server route
     const response = await fetch('/api/voters/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -79,6 +96,13 @@ export default function VotePage() {
     fontFamily: 'monospace',
   }
 
+  const label = {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px',
+    marginBottom: '6px',
+    display: 'block',
+  }
+
   return (
     <div style={{ background: '#0f0c29', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
       <div style={{ width: '100%', maxWidth: '360px' }}>
@@ -95,23 +119,33 @@ export default function VotePage() {
             <div style={{ fontSize: '36px', marginBottom: '12px' }}>🗳️</div>
             <h1 style={{ color: 'white', fontSize: '22px', fontWeight: 500, margin: 0 }}>Student Login</h1>
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', marginTop: '6px' }}>
-              Enter your Index Number and PIN to vote
+              Enter your school code, Index Number and PIN
             </p>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div>
-              <label style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '6px', display: 'block' }}>Index Number</label>
+              <label style={label}>School Code</label>
               <input
                 type="text"
-                placeholder="e.g. AHS-2026-001"
+                placeholder="e.g. accra-high, sob-uds"
+                value={schoolCode}
+                onChange={(e) => setSchoolCode(e.target.value)}
+                style={input}
+              />
+            </div>
+            <div>
+              <label style={label}>Index Number</label>
+              <input
+                type="text"
+                placeholder="e.g. HRM/0082/24"
                 value={indexNumber}
                 onChange={(e) => setIndexNumber(e.target.value)}
                 style={input}
               />
             </div>
             <div>
-              <label style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '6px', display: 'block' }}>PIN</label>
+              <label style={label}>PIN</label>
               <input
                 type="text"
                 inputMode="numeric"
@@ -133,7 +167,7 @@ export default function VotePage() {
 
           <div style={{ marginTop: '20px', padding: '12px', borderRadius: '10px', background: 'rgba(99,102,241,0.08)', border: '0.5px solid rgba(99,102,241,0.2)' }}>
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: 0, textAlign: 'center' }}>
-              Your Index Number and PIN were provided by your school admin.
+              Your school code, Index Number and PIN were provided by your school admin.
             </p>
           </div>
 
